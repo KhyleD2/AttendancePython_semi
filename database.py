@@ -3,6 +3,7 @@ from mysql.connector import Error
 from config import DB_CONFIG
 from datetime import datetime, date, timedelta
 
+
 class Database:
     def __init__(self):
         self.connection = None
@@ -164,7 +165,7 @@ class Database:
         result = self.execute_query(query, (employee_id, today), fetch=True)
         return result[0] if result else None
     
-    # --- Dashboard Statistics (UPDATED WITH LEAVE INTEGRATION) ---
+    # ==================== DASHBOARD STATISTICS METHOD ====================
     def get_dashboard_stats(self):
         """Get dashboard statistics with leave integration"""
         stats = {
@@ -189,18 +190,45 @@ class Database:
             result = self.execute_query(query, (today,), fetch=True)
             stats['present_today'] = result[0]['count'] if result else 0
             
-            # On Leave Today (approved leave requests)
+            # On Leave Today (approved leave requests) - FIXED
             try:
-                query = "SELECT COUNT(*) as count FROM leave_requests WHERE leave_date = %s AND status = 'Approved'"
+                # First, let's debug what's in the database
+                debug_query = """
+                    SELECT employee_id, leave_date, status 
+                    FROM leave_requests 
+                    WHERE leave_date = %s
+                """
+                debug_result = self.execute_query(debug_query, (today,), fetch=True)
+                print(f"DEBUG - All leave requests for today: {debug_result}")
+                
+                # Now count approved ones (case-insensitive)
+                query = """
+                    SELECT COUNT(DISTINCT employee_id) as count 
+                    FROM leave_requests 
+                    WHERE leave_date = %s AND LOWER(status) = 'approved'
+                """
                 result = self.execute_query(query, (today,), fetch=True)
                 stats['on_leave'] = result[0]['count'] if result else 0
-            except:
+                print(f"DEBUG - On Leave Count: {stats['on_leave']}")
+            except Exception as e:
+                print(f"Error fetching on_leave: {e}")
+                import traceback
+                traceback.print_exc()
                 stats['on_leave'] = 0
             
-            # Late Employees (clocked in after 9 AM)
-            query = "SELECT COUNT(DISTINCT employee_id) as count FROM attendance WHERE DATE(clock_in) = %s AND TIME(clock_in) > '09:00:00'"
-            result = self.execute_query(query, (today,), fetch=True)
-            stats['late_employees'] = result[0]['count'] if result else 0
+            # Late Employees (using status column) - FIXED
+            try:
+                query = """
+                    SELECT COUNT(DISTINCT employee_id) as count 
+                    FROM attendance 
+                    WHERE date = %s AND status = 'late'
+                """
+                result = self.execute_query(query, (today,), fetch=True)
+                stats['late_employees'] = result[0]['count'] if result else 0
+                print(f"DEBUG - Late Employees Count: {stats['late_employees']}")  # Debug line
+            except Exception as e:
+                print(f"Error fetching late_employees: {e}")
+                stats['late_employees'] = 0
             
             # Absent Today
             stats['absent_today'] = stats['total_employees'] - stats['present_today'] - stats['on_leave']
@@ -209,6 +237,7 @@ class Database:
             print(f"Error fetching dashboard stats: {e}")
         
         return stats
+    # ==================== END DASHBOARD STATISTICS METHOD ====================
     
     # --- Daily Attendance Stats (UPDATED WITH LEAVE DATA) ---
     def get_daily_attendance_stats(self, days=7):
@@ -621,3 +650,112 @@ class Database:
                 formatted_data.append(row)
         
         return formatted_data
+    
+# ==================== LATE FEE METHODS ====================
+    # Copy and paste this inside your Database class in database.py
+    # Make sure these align with your other methods like 'connect' or 'disconnect'
+
+    def clock_in_with_late_fee(self, employee_id):
+        """Clock in with automatic late fee calculation"""
+        # Import inside function to avoid circular import issues
+        from late_fee_calculator import LateFeeCalculator 
+        from datetime import datetime, date
+        
+        today = date.today()
+        # Check if already clocked in
+        check_query = "SELECT * FROM attendance WHERE employee_id = %s AND date = %s AND clock_out IS NULL"
+        existing = self.execute_query(check_query, (employee_id, today), fetch=True)
+        
+        if existing:
+            return False, "Already clocked in today", None
+        
+        clock_in_time = datetime.now()
+        
+        # Insert attendance record
+        query = """INSERT INTO attendance (employee_id, clock_in, date, status)
+                   VALUES (%s, %s, %s, 'present')"""
+        attendance_id = self.execute_query(query, (employee_id, clock_in_time, today))
+        
+        if attendance_id:
+            # Calculate and process late fee
+            calculator = LateFeeCalculator(self)
+            late_result = calculator.process_late_attendance(attendance_id, employee_id, clock_in_time)
+            
+            return True, late_result['message'], late_result
+        else:
+            return False, "Failed to clock in", None
+
+    def get_employee_late_fees(self, employee_id):
+        """Get all late fees for an employee"""
+        query = """SELECT a.id, a.date, a.clock_in, a.minutes_late, 
+                          a.late_fee_amount, a.late_fee_paid
+                   FROM attendance a
+                   WHERE a.employee_id = %s AND a.late_fee_amount > 0
+                   ORDER BY a.date DESC"""
+        return self.execute_query(query, (employee_id,), fetch=True)
+
+    def get_all_unpaid_late_fees(self):
+        """Get all unpaid late fees across all employees"""
+        query = """SELECT a.id, a.employee_id, a.date, a.clock_in,
+                          CONCAT(e.first_name, ' ', e.last_name) as employee_name,
+                          e.department, a.minutes_late, a.late_fee_amount
+                   FROM attendance a
+                   JOIN employees e ON a.employee_id = e.id
+                   WHERE a.late_fee_amount > 0 AND a.late_fee_paid = 0
+                   ORDER BY a.date DESC"""
+        return self.execute_query(query, fetch=True)
+
+    def get_admin_fee_summary(self):
+        """Get late fee summary for all employees (For Admin Dashboard)"""
+        query = """SELECT e.id, CONCAT(e.first_name, ' ', e.last_name) as name,
+                          e.department,
+                          COUNT(CASE WHEN a.late_fee_amount > 0 THEN 1 END) as late_count,
+                          COALESCE(SUM(a.late_fee_amount), 0) as total_fees,
+                          COALESCE(SUM(CASE WHEN a.late_fee_paid = 1 THEN a.late_fee_amount ELSE 0 END), 0) as paid,
+                          COALESCE(SUM(CASE WHEN a.late_fee_paid = 0 THEN a.late_fee_amount ELSE 0 END), 0) as unpaid
+                   FROM employees e
+                   LEFT JOIN attendance a ON e.id = a.employee_id
+                   GROUP BY e.id, e.first_name, e.last_name, e.department
+                   HAVING late_count > 0
+                   ORDER BY total_fees DESC"""
+        return self.execute_query(query, fetch=True)
+
+    def get_late_fee_settings(self):
+        """Get current late fee settings"""
+        query = "SELECT * FROM late_fee_settings WHERE is_active = 1 ORDER BY id DESC LIMIT 1"
+        result = self.execute_query(query, fetch=True)
+        return result[0] if result else None
+
+    def get_employee_unpaid_fees(self, employee_id):
+        """Get all unpaid late records for a specific employee"""
+        query = """
+            SELECT id, date, minutes_late, late_fee_amount, status
+            FROM attendance 
+            WHERE employee_id = %s 
+            AND late_fee_amount > 0 
+            AND (late_fee_paid = 0 OR late_fee_paid IS NULL)
+            ORDER BY date DESC
+        """
+        return self.execute_query(query, (employee_id,), fetch=True)
+
+    def process_payment(self, attendance_id, employee_id, amount):
+        """Record a payment and mark attendance as paid"""
+        try:
+            # 1. Record the payment
+            payment_query = """
+                INSERT INTO late_fee_payments 
+                (attendance_id, employee_id, amount_paid, payment_date) 
+                VALUES (%s, %s, %s, NOW())
+            """
+            self.execute_query(payment_query, (attendance_id, employee_id, amount))
+
+            # 2. Mark the attendance record as 'paid'
+            update_query = "UPDATE attendance SET late_fee_paid = 1 WHERE id = %s"
+            self.execute_query(update_query, (attendance_id,))
+            
+            return True
+        except Exception as e:
+            print(f"Payment Error: {e}")
+            return False
+
+    # ==================== END LATE FEE METHODS ====================

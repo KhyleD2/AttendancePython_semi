@@ -11,7 +11,9 @@ from admin.employees_view import EmployeesView
 from admin.create_employee_view import CreateEmployeeView
 from admin.create_hr_view import CreateHRView
 from admin.reports_view import ReportsView
-from admin.leave_management_view import LeaveManagementView  # NEW IMPORT
+from admin.leave_management_view import LeaveManagementView
+from admin.settings_view import SettingsView
+from admin.late_fee_management_view import LateFeeManagementView  # <--- NEW IMPORT
 
 class AdminDashboard:
     def __init__(self, user_data):
@@ -55,18 +57,20 @@ class AdminDashboard:
         
         tk.Label(sidebar, text="", bg=COLORS['bg_white']).pack(pady=10)
         
-        # Menu Items - Reordered as requested
+        # Menu Items - Added Late Fees here
         menu_items = [
             ("📊 Dashboard", self.show_dashboard),
             ("📋 Attendance Logs", self.show_attendance_logs),
+            ("💰 Late Fees", self.show_late_fees_management),  # <--- NEW BUTTON
             ("👥 Employees", self.show_employees),
             ("📝 Leave Requests", self.show_leave_requests),
             ("📈 Reports", self.show_reports),
+            ("⚙ Settings", self.show_settings),
             ("➕ Create Employee", self.show_create_employee),
             ("👔 Create HR Manager", self.show_create_hr),
         ]
         
-        # Regular menu items
+        # Create Menu Buttons
         for text, command in menu_items:
             btn = tk.Button(sidebar, text=text, 
                           font=("Arial", 11),
@@ -83,22 +87,22 @@ class AdminDashboard:
             btn.bind("<Enter>", lambda e, b=btn: b.config(bg=COLORS['hover']))
             btn.bind("<Leave>", lambda e, b=btn: b.config(bg=COLORS['bg_white']))
         
-        # Spacer to push logout to bottom
+        # Spacer
         spacer = tk.Frame(sidebar, bg=COLORS['bg_white'])
         spacer.pack(fill=tk.BOTH, expand=True)
         
-        # Logout Button - Red at bottom
+        # Logout Button
         logout_btn = tk.Button(sidebar, text="🚪 Logout", 
-                              font=("Arial", 11, "bold"),
-                              bg="#e74c3c",  # Red color
-                              fg="white", 
-                              command=self.logout,
-                              cursor="hand2", 
-                              relief=tk.FLAT, 
-                              anchor=tk.W, 
-                              padx=20, 
-                              pady=12,
-                              activebackground="#c0392b")  # Darker red on hover
+                             font=("Arial", 11, "bold"),
+                             bg="#e74c3c", 
+                             fg="white", 
+                             command=self.logout,
+                             cursor="hand2", 
+                             relief=tk.FLAT, 
+                             anchor=tk.W, 
+                             padx=20, 
+                             pady=12,
+                             activebackground="#c0392b")
         logout_btn.pack(fill=tk.X, pady=2, side=tk.BOTTOM)
         logout_btn.bind("<Enter>", lambda e, b=logout_btn: b.config(bg="#c0392b"))
         logout_btn.bind("<Leave>", lambda e, b=logout_btn: b.config(bg="#e74c3c"))
@@ -121,6 +125,11 @@ class AdminDashboard:
         """Display Attendance Logs"""
         self.clear_content()
         AttendanceLogsView(self.content_frame, self.db)
+
+    def show_late_fees_management(self):  # <--- NEW FUNCTION
+        """Display Late Fee Management View"""
+        self.clear_content()
+        LateFeeManagementView(self.content_frame, self.db)
     
     def show_employees(self):
         """Display All Employees"""
@@ -136,6 +145,11 @@ class AdminDashboard:
         """Display Reports & Analytics"""
         self.clear_content()
         ReportsView(self.content_frame, self.db)
+
+    def show_settings(self):
+        """Display Settings View"""
+        self.clear_content()
+        SettingsView(self.content_frame, self.db)
     
     def show_create_employee(self):
         """Display Create Employee Form"""
@@ -146,7 +160,7 @@ class AdminDashboard:
         """Display Create HR Manager Form"""
         self.clear_content()
         CreateHRView(self.content_frame, self.db)
-    
+
     def logout(self):
         """Logout and close application"""
         if messagebox.askyesno("Logout", "Are you sure you want to logout?"):

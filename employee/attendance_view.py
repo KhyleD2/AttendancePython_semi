@@ -28,8 +28,6 @@ class AttendanceView:
 
         main_card = tk.Frame(center_frame, bg="white", highlightbackground="#E5E7EB", highlightthickness=1, width=900, height=950)
         main_card.pack()
-        # Allow height to adjust automatically
-        # main_card.pack_propagate(False) 
 
         # ========== HEADER ==========
         header = tk.Frame(main_card, bg="white")
@@ -219,8 +217,6 @@ class AttendanceView:
                  font=("Segoe UI", 11), fg="#92400E", bg="#FEF3C7").pack(pady=(0, 15))
 
         # --- CLOCK OUT BUTTON ---
-        # This button must be OUTSIDE the status card so it's clearly clickable
-        # We create a big red button below the yellow status card
         btn = tk.Button(parent, text="STOP WORK / CLOCK OUT", font=("Segoe UI", 14, "bold"),
                         bg="#EF4444", fg="white", activebackground="#DC2626", activeforeground="white",
                         relief=tk.FLAT, cursor="hand2",
@@ -243,19 +239,69 @@ class AttendanceView:
 
     # ====================== ACTION BUTTONS ===========================
     def clock_in(self):
-        success, message = self.db.clock_in(self.employee['id'])
-        if success:
-            messagebox.showinfo("Clock In Successful", message)
-            self.render() # Re-render to show the "Working" status
-        else:
-            messagebox.showerror("Clock In Failed", message)
+        """Clock in with late fee calculation"""
+        try:
+            print("\n=== CLOCK IN INITIATED ===")
+            print(f"Employee ID: {self.employee['id']}")
+            print(f"Employee Name: {self.employee['first_name']} {self.employee['last_name']}")
+            
+            # CRITICAL: Use clock_in_with_late_fee instead of regular clock_in
+            result = self.db.clock_in_with_late_fee(self.employee['id'])
+            
+            print(f"Clock in result type: {type(result)}")
+            print(f"Clock in result: {result}")
+            
+            # Unpack the result (should be tuple of 3 values)
+            if isinstance(result, tuple) and len(result) == 3:
+                success, message, late_result = result
+            else:
+                print(f"ERROR: Unexpected result format from clock_in_with_late_fee: {result}")
+                messagebox.showerror("Error", "Unexpected response from database")
+                return
+            
+            print(f"Success: {success}")
+            print(f"Message: {message}")
+            print(f"Late result: {late_result}")
+            
+            if success:
+                # Show appropriate message based on late status
+                if late_result and late_result.get('minutes_late', 0) > 0:
+                    # Employee is late - show warning with fee info
+                    warning_msg = (
+                        f"⚠️ LATE CLOCK-IN\n\n"
+                        f"You are {late_result['minutes_late']} minutes late.\n"
+                        f"Late Fee: ₱{late_result['late_fee']:.2f}\n\n"
+                        f"Please see HR regarding payment."
+                    )
+                    messagebox.showwarning("Clocked In - Late", warning_msg)
+                else:
+                    # On time
+                    messagebox.showinfo("Success", "✓ Clocked in successfully!\n\nYou are on time. Great job!")
+                
+                # Refresh the UI to show "Working" status
+                self.render()
+            else:
+                messagebox.showerror("Error", message)
+                
+        except Exception as e:
+            print(f"ERROR in clock_in: {e}")
+            import traceback
+            traceback.print_exc()
+            messagebox.showerror("Error", f"Failed to clock in: {str(e)}")
 
     def clock_out(self):
+        """Clock out with confirmation"""
         if messagebox.askyesno("Confirm Clock Out",
                                "Are you sure you want to clock out?\nThis will end your work session for today."):
-            success, message = self.db.clock_out(self.employee['id'])
-            if success:
-                messagebox.showinfo("Clock Out Successful", message)
-                self.render() # Re-render to show the "Completed" status
-            else:
-                messagebox.showerror("Clock Out Failed", message)
+            try:
+                success, message = self.db.clock_out(self.employee['id'])
+                if success:
+                    messagebox.showinfo("Clock Out Successful", message)
+                    self.render()
+                else:
+                    messagebox.showerror("Clock Out Failed", message)
+            except Exception as e:
+                print(f"ERROR in clock_out: {e}")
+                import traceback
+                traceback.print_exc()
+                messagebox.showerror("Error", f"Failed to clock out: {str(e)}")

@@ -7,6 +7,7 @@ from matplotlib.figure import Figure
 import matplotlib.ticker as ticker
 from config import COLORS
 
+
 class DashboardView:
     def __init__(self, parent_frame, db):
         self.parent_frame = parent_frame

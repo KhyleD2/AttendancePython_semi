@@ -45,13 +45,13 @@ class LoginWindow:
         logo.pack(pady=(0, 10))
         
         # Title
-        title = tk.Label(inner, text="Attendance System", 
+        title = tk.Label(inner, text="Attendance Platform", 
                         font=("Arial", 24, "bold"), 
                         fg=COLORS['text_dark'], bg=COLORS['bg_white'])
         title.pack(pady=(0, 5))
         
         # Subtitle
-        subtitle = tk.Label(inner, text="Sign in to continue", 
+        subtitle = tk.Label(inner, text="Employee Attendance Monitoring Platform", 
                            font=("Arial", 11), 
                            fg=COLORS['text_gray'], bg=COLORS['bg_white'])
         subtitle.pack(pady=(0, 30))

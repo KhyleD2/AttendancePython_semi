@@ -3,10 +3,13 @@ import tkinter as tk
 from tkinter import messagebox
 from database import Database
 from config import COLORS
+
+# Import separate modules
 from employee.dashboard_view import DashboardView
 from employee.attendance_view import AttendanceView
 from employee.reports_view import ReportsView
-from employee.leave_request_view import LeaveRequestView  # NEW IMPORT
+from employee.leave_request_view import LeaveRequestView
+from employee.late_fees_view import EmployeeLateFeesView  # <--- NEW IMPORT
 
 class EmployeeDashboard:
     def __init__(self, user_data):
@@ -52,11 +55,12 @@ class EmployeeDashboard:
         
         tk.Label(sidebar, text="", bg=COLORS['bg_white']).pack(pady=10)
         
-        # Menu Buttons (without Logout)
+        # Menu Buttons
         menu_items = [
             ("📊 Dashboard", self.show_dashboard),
             ("⏰ Clock In/Out", self.show_attendance),
-            ("📝 Leave Request", self.show_leave_request),  # NEW MENU ITEM
+            ("💳 My Late Fees", self.show_late_fees),   # <--- NEW BUTTON
+            ("📝 Leave Request", self.show_leave_request),
             ("📈 My Reports", self.show_reports),
         ]
         
@@ -81,18 +85,18 @@ class EmployeeDashboard:
         spacer = tk.Frame(sidebar, bg=COLORS['bg_white'])
         spacer.pack(fill=tk.BOTH, expand=True)
         
-        # Logout Button - Red at bottom
+        # Logout Button
         logout_btn = tk.Button(sidebar, text="🚪 Logout", 
-                              font=("Arial", 11, "bold"),
-                              bg="#e74c3c",  # Red color
-                              fg="white", 
-                              command=self.logout,
-                              cursor="hand2", 
-                              relief=tk.FLAT, 
-                              anchor=tk.W, 
-                              padx=20, 
-                              pady=12,
-                              activebackground="#c0392b")  # Darker red on hover
+                             font=("Arial", 11, "bold"),
+                             bg="#e74c3c", 
+                             fg="white", 
+                             command=self.logout,
+                             cursor="hand2", 
+                             relief=tk.FLAT, 
+                             anchor=tk.W, 
+                             padx=20, 
+                             pady=12,
+                             activebackground="#c0392b")
         logout_btn.pack(fill=tk.X, pady=2, side=tk.BOTTOM)
         logout_btn.bind("<Enter>", lambda e, b=logout_btn: b.config(bg="#c0392b"))
         logout_btn.bind("<Leave>", lambda e, b=logout_btn: b.config(bg="#e74c3c"))
@@ -112,9 +116,15 @@ class EmployeeDashboard:
     def show_attendance(self):
         self.clear_content()
         AttendanceView(self.content_frame, self.db, self.employee)
+
+    def show_late_fees(self):  # <--- NEW FUNCTION
+        """Display Employee Late Fees View"""
+        self.clear_content()
+        # We pass self.user_data because it contains the 'employee_id' 
+        # that the view expects to find.
+        EmployeeLateFeesView(self.content_frame, self.db, self.user_data)
     
     def show_leave_request(self):
-        """Display Leave Request Form - NEW METHOD"""
         self.clear_content()
         LeaveRequestView(self.content_frame, self.db, self.employee)
     
