@@ -33,7 +33,7 @@ class DashboardView:
         )
         title_label.pack(anchor=tk.W, padx=40, pady=(30, 20))
 
-        # KPI Cards Section (NEW)
+        # KPI Cards Section
         self.create_kpi_cards(main_container)
 
         # Content frame
@@ -54,10 +54,9 @@ class DashboardView:
         
         self.create_clock_card(right_frame)
         self.create_announcements_card(right_frame)
-        self.create_celebrations_card(right_frame)
 
     def create_kpi_cards(self, parent):
-        """Create KPI cards section at the top - like admin dashboard"""
+        """Create KPI cards section at the top"""
         kpi_container = Frame(parent, bg="#F5F7FA")
         kpi_container.pack(fill=tk.X, padx=40, pady=(0, 20))
 
@@ -156,7 +155,7 @@ class DashboardView:
             leave_result = self.db.execute_query(leave_query, (self.employee['id'], year, month), fetch=True)
             leave = leave_result[0]['count'] if leave_result else 0
             
-            # Calculate absent (working days up to today - present - leave)
+            # Calculate absent
             today = date.today()
             days_in_month = min(today.day if today.month == month and today.year == year else calendar.monthrange(year, month)[1], calendar.monthrange(year, month)[1])
             
@@ -362,7 +361,7 @@ class DashboardView:
             return {}
 
     def get_day_status(self, day_date, attendance_data, leave_data, holidays_data):
-        """Determine status for a specific day - FIXED TO SHOW 'On Leave'"""
+        """Determine status for a specific day"""
         # Future dates - no status
         if day_date > date.today():
             return None
@@ -371,11 +370,11 @@ class DashboardView:
         if day_date in holidays_data:
             return ("Holiday", "#E0E7FF", "#3730A3")
         
-        # Check if there's a leave request - SHOW "On Leave" instead of "Full Day"
+        # Check if there's a leave request
         if day_date in leave_data:
             leave = leave_data[day_date]
             if leave['status'] == 'Approved':
-                return ("On Leave", "#F3E8FF", "#6B21A8")  # Changed from "Full Day"
+                return ("On Leave", "#F3E8FF", "#6B21A8")
             elif leave['status'] == 'Pending':
                 return ("Pending REQ", "#FEF3C7", "#92400E")
             elif leave['status'] == 'Rejected':
@@ -385,7 +384,7 @@ class DashboardView:
         if day_date in attendance_data:
             att = attendance_data[day_date]
             if att['status'] == 'present':
-                return ("Present", "#DBEAFE", "#1E40AF")  # Changed from "Full Day"
+                return ("Present", "#DBEAFE", "#1E40AF")
             elif att['status'] == 'late':
                 return ("Late", "#FEF3C7", "#92400E")
             elif att['status'] == 'absent':
@@ -415,57 +414,13 @@ class DashboardView:
         self.render()
 
     def create_bottom_cards(self, parent):
-        """Create bottom row cards with REAL data"""
+        """Create bottom row cards with REAL data - REMOVED UPCOMING HOLIDAYS CARD"""
         bottom_row = Frame(parent, bg="#F5F7FA")
         bottom_row.pack(fill=tk.X)
 
-        # Upcoming holidays card
-        holidays_card = Frame(bottom_row, bg="white", highlightbackground="#E5E7EB", highlightthickness=1)
-        holidays_card.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
-
-        Label(
-            holidays_card,
-            text="Upcoming holidays",
-            font=("Segoe UI", 18, "bold"),
-            fg="#1F2937",
-            bg="white"
-        ).pack(anchor=tk.W, padx=20, pady=(20, 15))
-
-        # Get REAL holidays from database
-        holidays = self.get_upcoming_holidays()
-        
-        if holidays:
-            for holiday in holidays[:3]:  # Show max 3
-                holiday_item = Frame(holidays_card, bg="white")
-                holiday_item.pack(fill=tk.X, padx=20, pady=(0, 15))
-
-                Label(
-                    holiday_item,
-                    text=holiday['name'],
-                    font=("Segoe UI", 13, "bold"),
-                    fg="#1F2937",
-                    bg="white"
-                ).pack(anchor=tk.W)
-
-                Label(
-                    holiday_item,
-                    text=holiday['date_str'],
-                    font=("Segoe UI", 10),
-                    fg="#9CA3AF",
-                    bg="white"
-                ).pack(anchor=tk.W)
-        else:
-            Label(
-                holidays_card,
-                text="No upcoming holidays",
-                font=("Segoe UI", 11),
-                fg="#9CA3AF",
-                bg="white"
-            ).pack(padx=20, pady=10)
-
-        # Working hours card - FIXED CALCULATION
+        # Working hours card
         working_card = Frame(bottom_row, bg="white", highlightbackground="#E5E7EB", highlightthickness=1)
-        working_card.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(10, 10))
+        working_card.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
 
         # Get REAL working hours
         working_hours = self.get_weekly_working_hours()
@@ -593,7 +548,7 @@ class DashboardView:
             return []
 
     def get_weekly_working_hours(self):
-        """Calculate working hours for the current week - FIXED"""
+        """Calculate working hours for the current week"""
         try:
             today = date.today()
             # Start from Sunday of current week
@@ -668,7 +623,7 @@ class DashboardView:
             holiday_result = self.db.execute_query(holiday_query, (year, month, today), fetch=True)
             holidays = holiday_result[0]['count'] if holiday_result else 0
             
-            # Calculate absent (working days - present - leave)
+            # Calculate absent
             days_in_month = min(today.day if today.month == month and today.year == year else calendar.monthrange(year, month)[1], calendar.monthrange(year, month)[1])
             working_days = days_in_month - holidays
             absent = max(0, working_days - present - leave)
@@ -720,7 +675,7 @@ class DashboardView:
             bg="white"
         ).pack(anchor=tk.W, padx=25, pady=(5, 15))
 
-        # Shift time from settings (can be made dynamic later)
+        # Shift time
         Label(
             card,
             text="Shift  9:00am - 6:00pm",
@@ -765,7 +720,7 @@ class DashboardView:
                 messagebox.showwarning("Clock In - Late", msg)
             else:
                 messagebox.showinfo("Success", message)
-            self.render()  # Refresh the view
+            self.render()
         else:
             messagebox.showerror("Error", message)
 
@@ -774,182 +729,67 @@ class DashboardView:
         success, message = self.db.clock_out(self.employee['id'])
         if success:
             messagebox.showinfo("Success", message)
-            self.render()  # Refresh the view
+            self.render()
         else:
             messagebox.showerror("Error", message)
 
     def create_announcements_card(self, parent):
-        """Announcements card - showing work schedule"""
+        """Upcoming Holidays card - CHANGED FROM ANNOUNCEMENTS"""
         card = Frame(parent, bg="white", highlightbackground="#E5E7EB", highlightthickness=1, width=400)
         card.pack(fill=tk.X, pady=(0, 20))
 
         Label(
             card,
-            text="Announcements",
+            text="Upcoming Holidays",
             font=("Segoe UI", 18, "bold"),
             fg="#1F2937",
             bg="white"
         ).pack(anchor=tk.W, padx=25, pady=(20, 15))
 
-        # Get shift schedule from late_fee_settings
-        schedule = self.get_work_schedule()
+        # Get REAL holidays from database
+        holidays = self.get_upcoming_holidays()
 
-        announcements = [
-            ("Work Schedule", f"Shift: {schedule['shift_start']} - {schedule['shift_end']}"),
-            ("Grace Period", f"{schedule['grace_period']} minutes late allowed"),
-        ]
+        if holidays:
+            for holiday in holidays[:4]:  # Show max 4
+                item = Frame(card, bg="#F9FAFB")
+                item.pack(fill=tk.X, padx=25, pady=(0, 10))
 
-        for title, detail in announcements:
-            item = Frame(card, bg="#F9FAFB")
-            item.pack(fill=tk.X, padx=25, pady=(0, 10))
+                icon_label = Label(
+                    item,
+                    text="🎉",
+                    font=("Segoe UI", 20),
+                    bg="#3B82F6",
+                    fg="white",
+                    width=2,
+                    height=1
+                )
+                icon_label.pack(side=tk.LEFT, padx=(10, 15), pady=10)
 
-            icon_label = Label(
-                item,
-                text="📢",
-                font=("Segoe UI", 20),
-                bg="#3B82F6",
-                fg="white",
-                width=2,
-                height=1
-            )
-            icon_label.pack(side=tk.LEFT, padx=(10, 15), pady=10)
+                text_frame = Frame(item, bg="#F9FAFB")
+                text_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, pady=10)
 
-            text_frame = Frame(item, bg="#F9FAFB")
-            text_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, pady=10)
+                Label(
+                    text_frame,
+                    text=holiday['name'],
+                    font=("Segoe UI", 12, "bold"),
+                    fg="#1F2937",
+                    bg="#F9FAFB"
+                ).pack(anchor=tk.W)
 
+                Label(
+                    text_frame,
+                    text=holiday['date_str'],
+                    font=("Segoe UI", 10),
+                    fg="#6B7280",
+                    bg="#F9FAFB"
+                ).pack(anchor=tk.W)
+        else:
             Label(
-                text_frame,
-                text=title,
-                font=("Segoe UI", 12, "bold"),
-                fg="#1F2937",
-                bg="#F9FAFB"
-            ).pack(anchor=tk.W)
-
-            Label(
-                text_frame,
-                text=detail,
-                font=("Segoe UI", 10),
-                fg="#6B7280",
-                bg="#F9FAFB"
-            ).pack(anchor=tk.W)
-
-        Frame(card, bg="white", height=20).pack()
-
-    def get_work_schedule(self):
-        """Get work schedule from late_fee_settings"""
-        try:
-            query = """
-                SELECT standard_shift_start, grace_period_minutes
-                FROM late_fee_settings
-                WHERE is_active = 1
-                ORDER BY id DESC
-                LIMIT 1
-            """
-            result = self.db.execute_query(query, fetch=True)
-            
-            if result:
-                shift_start = result[0]['standard_shift_start']
-                grace_period = result[0]['grace_period_minutes']
-                
-                # Calculate shift end (assuming 8 hour shift)
-                start_time = datetime.strptime(str(shift_start), "%H:%M:%S")
-                end_time = start_time + timedelta(hours=8)
-                
-                return {
-                    'shift_start': start_time.strftime("%I:%M %p"),
-                    'shift_end': end_time.strftime("%I:%M %p"),
-                    'grace_period': grace_period
-                }
-            else:
-                return {
-                    'shift_start': "9:00 AM",
-                    'shift_end': "6:00 PM",
-                    'grace_period': 10
-                }
-        except Exception as e:
-            print(f"Error getting schedule: {e}")
-            return {
-                'shift_start': "9:00 AM",
-                'shift_end': "6:00 PM",
-                'grace_period': 10
-            }
-
-    def create_celebrations_card(self, parent):
-        """Celebrations card - using demo data (can be made dynamic)"""
-        card = Frame(parent, bg="white", highlightbackground="#E5E7EB", highlightthickness=1, width=400)
-        card.pack(fill=tk.X, pady=(0, 20))
-
-        header = Frame(card, bg="white")
-        header.pack(fill=tk.X, padx=25, pady=(20, 15))
-
-        Label(
-            header,
-            text="Celebrations",
-            font=("Segoe UI", 18, "bold"),
-            fg="#1F2937",
-            bg="white"
-        ).pack(side=tk.LEFT)
-
-        celebrations = [
-            ("Lydia Westervelt", "Birthday", "01", "Dec"),
-            ("Ria Vetrovs", "Work Anniversary", "06", "Dec"),
-            ("Kim Soo-hyun", "Marriage Anniversary", "08", "Dec")
-        ]
-
-        for name, event, day, month in celebrations:
-            item = Frame(card, bg="white")
-            item.pack(fill=tk.X, padx=25, pady=(0, 15))
-
-            profile = Label(
-                item,
-                text="👤",
-                font=("Segoe UI", 20),
-                bg="#E5E7EB",
-                width=2,
-                height=1
-            )
-            profile.pack(side=tk.LEFT, padx=(0, 15))
-
-            text_frame = Frame(item, bg="white")
-            text_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
-
-            Label(
-                text_frame,
-                text=name,
-                font=("Segoe UI", 12, "bold"),
-                fg="#1F2937",
+                card,
+                text="No upcoming holidays",
+                font=("Segoe UI", 11),
+                fg="#9CA3AF",
                 bg="white"
-            ).pack(anchor=tk.W)
-
-            Label(
-                text_frame,
-                text=event,
-                font=("Segoe UI", 10),
-                fg="#6B7280",
-                bg="white"
-            ).pack(anchor=tk.W)
-
-            date_badge = Frame(item, bg="#3B82F6")
-            date_badge.pack(side=tk.RIGHT)
-
-            Label(
-                date_badge,
-                text=day,
-                font=("Segoe UI", 14, "bold"),
-                fg="white",
-                bg="#3B82F6",
-                padx=10,
-                pady=2
-            ).pack()
-
-            Label(
-                date_badge,
-                text=month,
-                font=("Segoe UI", 9),
-                fg="white",
-                bg="#3B82F6",
-                padx=10,
-                pady=2
-            ).pack()
+            ).pack(padx=25, pady=10)
 
         Frame(card, bg="white", height=20).pack()
