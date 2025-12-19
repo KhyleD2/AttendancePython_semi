@@ -113,76 +113,236 @@ class DashboardView:
             bg="white"
         ).pack(anchor="e", pady=(5, 0))
 
+    def get_employee_hire_date(self):
+        """Get employee's hire date from database"""
+        try:
+            query = """
+                SELECT hire_date
+                FROM employees
+                WHERE id = %s
+            """
+            result = self.db.execute_query(query, (self.employee['id'],), fetch=True)
+            if result and result[0]['hire_date']:
+                return result[0]['hire_date']
+            return None
+        except Exception as e:
+            print(f"Error fetching hire date: {e}")
+            return None
+
     def get_monthly_statistics(self):
-        """Get statistics for current month"""
+        """Get statistics for current month - FIXED to count missing records as absent"""
         try:
             year = self.current_date.year
             month = self.current_date.month
             
-            # Present days
+            # Get employee hire date
+            hire_date = self.get_employee_hire_date()
+            
+            # If viewing a month before hire date, return all zeros
+            if hire_date:
+                hire_date_obj = hire_date if isinstance(hire_date, date) else hire_date.date()
+                viewing_date = date(year, month, 1)
+                
+                # If entire month is before hire month, return zeros
+                if (viewing_date.year < hire_date_obj.year) or \
+                (viewing_date.year == hire_date_obj.year and viewing_date.month < hire_date_obj.month):
+                    return {'present': 0, 'absent': 0, 'leave': 0, 'late': 0}
+            
+            # If viewing future month, return zeros
+            today = date.today()
+            if year > today.year or (year == today.year and month > today.month):
+                return {'present': 0, 'absent': 0, 'leave': 0, 'late': 0}
+            
+            # Determine date range
+            start_date = date(year, month, 1)
+            if year == today.year and month == today.month:
+                end_date = today
+            else:
+                last_day = calendar.monthrange(year, month)[1]
+                end_date = date(year, month, last_day)
+            
+            # IMPORTANT: Adjust start date if hired mid-month
+            if hire_date:
+                hire_date_obj = hire_date if isinstance(hire_date, date) else hire_date.date()
+                # If hire date is in this month and after the start, use hire date as start
+                if hire_date_obj.year == year and hire_date_obj.month == month and hire_date_obj > start_date:
+                    start_date = hire_date_obj
+            
+            # Count PRESENT days
             present_query = """
-                SELECT COUNT(*) as count
+                SELECT COUNT(DISTINCT DATE(date)) as count
                 FROM attendance
                 WHERE employee_id = %s
-                AND YEAR(date) = %s
-                AND MONTH(date) = %s
-                AND status IN ('present', 'late')
+                AND DATE(date) >= %s
+                AND DATE(date) <= %s
+                AND status = 'present'
             """
-            present_result = self.db.execute_query(present_query, (self.employee['id'], year, month), fetch=True)
+            present_result = self.db.execute_query(
+                present_query, 
+                (self.employee['id'], start_date, end_date), 
+                fetch=True
+            )
             present = present_result[0]['count'] if present_result else 0
             
-            # Late days
+            # Count LATE days
             late_query = """
-                SELECT COUNT(*) as count
+                SELECT COUNT(DISTINCT DATE(date)) as count
                 FROM attendance
                 WHERE employee_id = %s
-                AND YEAR(date) = %s
-                AND MONTH(date) = %s
+                AND DATE(date) >= %s
+                AND DATE(date) <= %s
                 AND status = 'late'
             """
-            late_result = self.db.execute_query(late_query, (self.employee['id'], year, month), fetch=True)
+            late_result = self.db.execute_query(
+                late_query, 
+                (self.employee['id'], start_date, end_date), 
+                fetch=True
+            )
             late = late_result[0]['count'] if late_result else 0
             
-            # Leave days
+            # Count ABSENT days from database records
+            absent_records_query = """
+                SELECT COUNT(DISTINCT DATE(date)) as count
+                FROM attendance
+                WHERE employee_id = %s
+                AND DATE(date) >= %s
+                AND DATE(date) <= %s
+                AND status = 'absent'
+            """
+            absent_records_result = self.db.execute_query(
+                absent_records_query, 
+                (self.employee['id'], start_date, end_date), 
+                fetch=True
+            )
+            absent_records = absent_records_result[0]['count'] if absent_records_result else 0
+            
+            # Count APPROVED leaves
             leave_query = """
-                SELECT COUNT(*) as count
+                SELECT COUNT(DISTINCT leave_date) as count
                 FROM leave_requests
                 WHERE employee_id = %s
-                AND YEAR(leave_date) = %s
-                AND MONTH(leave_date) = %s
+                AND leave_date >= %s
+                AND leave_date <= %s
                 AND status = 'Approved'
             """
-            leave_result = self.db.execute_query(leave_query, (self.employee['id'], year, month), fetch=True)
+            leave_result = self.db.execute_query(
+                leave_query, 
+                (self.employee['id'], start_date, end_date), 
+                fetch=True
+            )
             leave = leave_result[0]['count'] if leave_result else 0
             
-            # Calculate absent
-            today = date.today()
-            days_in_month = min(today.day if today.month == month and today.year == year else calendar.monthrange(year, month)[1], calendar.monthrange(year, month)[1])
+            # Count Sundays in the date range
+            sundays = 0
+            current_date = start_date
+            while current_date <= end_date:
+                if current_date.weekday() == 6:  # Sunday
+                    sundays += 1
+                current_date += timedelta(days=1)
             
-            # Get holidays count
+            # Count holidays in the date range
             holiday_query = """
                 SELECT COUNT(*) as count
                 FROM holidays
-                WHERE YEAR(holiday_date) = %s
-                AND MONTH(holiday_date) = %s
+                WHERE holiday_date >= %s
                 AND holiday_date <= %s
             """
-            holiday_result = self.db.execute_query(holiday_query, (year, month, today), fetch=True)
+            holiday_result = self.db.execute_query(
+                holiday_query, 
+                (start_date, end_date), 
+                fetch=True
+            )
             holidays = holiday_result[0]['count'] if holiday_result else 0
             
-            working_days = days_in_month - holidays
-            absent = max(0, working_days - present - leave)
+            # Calculate totals
+            total_days = (end_date - start_date).days + 1
+            working_days = total_days - sundays - holidays
+            
+            # Calculate absent: Working days - (Present + Late + Leave + Absent records)
+            # If there are no records for a working day, it counts as absent
+            accounted_days = present + late + leave + absent_records
+            calculated_absent = max(0, working_days - present - late - leave)
+            
+            # Use the MAXIMUM of absent records vs calculated absent
+            # This handles both cases:
+            # 1. Days with explicit 'absent' status in DB
+            # 2. Days with no records at all (missing = absent)
+            absent = max(absent_records, calculated_absent)
+            
+            print(f"\n{'='*60}")
+            print(f"Monthly Statistics for {year}-{month} (Employee ID: {self.employee['id']})")
+            print(f"{'='*60}")
+            print(f"Date range: {start_date} to {end_date}")
+            print(f"Total days in range: {total_days}")
+            print(f"Sundays: {sundays}, Holidays: {holidays}")
+            print(f"Working days: {working_days}")
+            print(f"")
+            print(f"Present: {present}")
+            print(f"Late: {late}")
+            print(f"Absent records in DB: {absent_records}")
+            print(f"Leave: {leave}")
+            print(f"Accounted days: {accounted_days}")
+            print(f"")
+            print(f"Calculated absent (missing records): {calculated_absent}")
+            print(f"FINAL Absent (max of both): {absent}")
+            print(f"{'='*60}\n")
             
             return {
-                'present': present,
-                'absent': absent,
+                'present': present + late,  # Total days present (including late)
+                'absent': absent,           # Calculated or from DB, whichever is higher
                 'leave': leave,
                 'late': late
             }
+            
         except Exception as e:
             print(f"Error getting monthly statistics: {e}")
+            import traceback
+            traceback.print_exc()
             return {'present': 0, 'absent': 0, 'leave': 0, 'late': 0}
 
+    def get_holidays_for_month(self):
+        """Get holidays for current month - WITH DEBUG"""
+        try:
+            year = self.current_date.year
+            month = self.current_date.month
+            
+            query = """
+                SELECT holiday_date, name
+                FROM holidays
+                WHERE YEAR(holiday_date) = %s 
+                AND MONTH(holiday_date) = %s
+            """
+            result = self.db.execute_query(query, (year, month), fetch=True)
+            
+            print(f"\n🔍 DEBUG: Fetching holidays for {year}-{month}")
+            print(f"Query result: {result}")
+            
+            holiday_dict = {}
+            if result:
+                for row in result:
+                    holiday_date = row['holiday_date']
+                    # Ensure it's a date object
+                    if isinstance(holiday_date, str):
+                        from datetime import datetime
+                        holiday_date = datetime.strptime(holiday_date, "%Y-%m-%d").date()
+                    elif hasattr(holiday_date, 'date'):
+                        holiday_date = holiday_date.date()
+                    
+                    holiday_dict[holiday_date] = row
+                    print(f"  ✅ Added holiday: {holiday_date} - {row['name']}")
+            else:
+                print(f"  ❌ No holidays found")
+            
+            print(f"Final holiday_dict: {holiday_dict}")
+            print("="*50 + "\n")
+            
+            return holiday_dict
+        except Exception as e:
+            print(f"❌ Error fetching holidays: {e}")
+            import traceback
+            traceback.print_exc()
+            return {}
+    
     def create_calendar_card(self, parent):
         """Calendar card with REAL attendance data from database"""
         card = Frame(parent, bg="white", relief=tk.FLAT, bd=0)
@@ -232,14 +392,18 @@ class DashboardView:
         attendance_data = self.get_attendance_for_month()
         leave_data = self.get_leaves_for_month()
         holidays_data = self.get_holidays_for_month()
+        hire_date = self.get_employee_hire_date()
         
-        # Get calendar data
+        # Get calendar data - SET FIRST DAY TO SUNDAY
         year = self.current_date.year
         month = self.current_date.month
-        cal = calendar.monthcalendar(year, month)
+        
+        # Create calendar with Sunday as first day
+        cal = calendar.Calendar(firstweekday=calendar.SUNDAY)
+        month_days = cal.monthdayscalendar(year, month)
 
         # Calendar rows
-        for week in cal:
+        for week in month_days:
             week_frame = Frame(cal_container, bg="white")
             week_frame.pack(fill=tk.X)
 
@@ -265,7 +429,7 @@ class DashboardView:
 
                     # Determine status for this day
                     day_date = date(year, month, day)
-                    status = self.get_day_status(day_date, attendance_data, leave_data, holidays_data)
+                    status = self.get_day_status(day_date, attendance_data, leave_data, holidays_data, hire_date)
                     
                     if status:
                         status_text, status_bg, status_fg = status
@@ -360,15 +524,28 @@ class DashboardView:
             print(f"Error fetching holidays: {e}")
             return {}
 
-    def get_day_status(self, day_date, attendance_data, leave_data, holidays_data):
-        """Determine status for a specific day"""
-        # Future dates - no status
+    def get_day_status(self, day_date, attendance_data, leave_data, holidays_data, hire_date):
+        """Determine status for a specific day - FIXED to show future holidays"""
+        
+        # Check if employee was hired yet
+        if hire_date:
+            hire_date_obj = hire_date if isinstance(hire_date, date) else hire_date.date()
+            if day_date < hire_date_obj:
+                return None  # Don't show any status before hire date
+        
+        # Check if it's Sunday (0=Mon, 1=Tue... 6=Sun)
+        if day_date.weekday() == 6:  # Sunday
+            return ("Rest Day", "#F3F4F6", "#6B7280")
+        
+        # *** FIX: Check holidays FIRST - even for future dates ***
+        if day_date in holidays_data:
+            holiday_name = holidays_data[day_date]['name']
+            print(f"✅ Holiday found: {day_date} - {holiday_name}")
+            return ("Holiday", "#E0E7FF", "#3730A3")
+        
+        # NOW check if it's a future date (after checking holidays)
         if day_date > date.today():
             return None
-        
-        # Check if it's a holiday
-        if day_date in holidays_data:
-            return ("Holiday", "#E0E7FF", "#3730A3")
         
         # Check if there's a leave request
         if day_date in leave_data:
@@ -414,7 +591,7 @@ class DashboardView:
         self.render()
 
     def create_bottom_cards(self, parent):
-        """Create bottom row cards with REAL data - REMOVED UPCOMING HOLIDAYS CARD"""
+        """Create bottom row cards with REAL data"""
         bottom_row = Frame(parent, bg="#F5F7FA")
         bottom_row.pack(fill=tk.X)
 
@@ -480,57 +657,6 @@ class DashboardView:
                 fg="#6B7280",
                 bg="white"
             ).pack(side=tk.LEFT, expand=True)
-
-        # Attendance summary card
-        summary_card = Frame(bottom_row, bg="white", highlightbackground="#E5E7EB", highlightthickness=1)
-        summary_card.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(10, 0))
-
-        Label(
-            summary_card,
-            text="Attendance summary",
-            font=("Segoe UI", 18, "bold"),
-            fg="#1F2937",
-            bg="white"
-        ).pack(anchor=tk.W, padx=20, pady=(20, 15))
-
-        # Get REAL attendance summary
-        summary = self.get_attendance_summary()
-
-        summary_items = [
-            (str(summary['present']), "Present", "#10B981"),
-            (str(summary['absent']), "Absent", "#EF4444"),
-            (str(summary['leave']), "Leave", "#8B5CF6"),
-            (str(summary['holidays']), "Holidays", "#F59E0B")
-        ]
-
-        items_grid = Frame(summary_card, bg="white")
-        items_grid.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 20))
-
-        for i, (count, label, color) in enumerate(summary_items):
-            item_frame = Frame(items_grid, bg="white")
-            if i < 2:
-                item_frame.grid(row=0, column=i, padx=10, pady=10, sticky="w")
-            else:
-                item_frame.grid(row=1, column=i-2, padx=10, pady=10, sticky="w")
-
-            count_label = Label(
-                item_frame,
-                text=count,
-                font=("Segoe UI", 20, "bold"),
-                fg="white",
-                bg=color,
-                width=3,
-                height=1
-            )
-            count_label.pack()
-
-            Label(
-                item_frame,
-                text=label,
-                font=("Segoe UI", 11),
-                fg="#6B7280",
-                bg="white"
-            ).pack(pady=(5, 0))
 
     def get_upcoming_holidays(self):
         """Get upcoming holidays from database"""
@@ -734,7 +860,7 @@ class DashboardView:
             messagebox.showerror("Error", message)
 
     def create_announcements_card(self, parent):
-        """Upcoming Holidays card - CHANGED FROM ANNOUNCEMENTS"""
+        """Upcoming Holidays card"""
         card = Frame(parent, bg="white", highlightbackground="#E5E7EB", highlightthickness=1, width=400)
         card.pack(fill=tk.X, pady=(0, 20))
 

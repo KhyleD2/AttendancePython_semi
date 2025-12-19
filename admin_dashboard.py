@@ -36,7 +36,7 @@ class AdminDashboard:
         header.pack(fill=tk.X)
         header.pack_propagate(False)
         
-        tk.Label(header, text="Admin Dashboard", 
+        tk.Label(header, text="Admin", 
                 font=("Arial", 18, "bold"),
                 bg=COLORS['primary'], 
                 fg="white").pack(side=tk.LEFT, padx=30, pady=20)
@@ -68,8 +68,7 @@ class AdminDashboard:
             ("🗓️ Manage Holidays", self.show_manage_holidays),  # <--- NEW BUTTON
             ("📈 Reports", self.show_reports),
             ("⚙ Settings", self.show_settings),
-            ("➕ Create Employee", self.show_create_employee),
-            ("👔 Create HR Manager", self.show_create_hr),
+            ("➕ Create Employee", self.show_create_employee),    
         ]
         
         # Create Menu Buttons
@@ -176,4 +175,4 @@ class AdminDashboard:
     
     def run(self):
         """Run the admin dashboard"""
-        self.window.mainloop()
+        self.window.mainloop() 

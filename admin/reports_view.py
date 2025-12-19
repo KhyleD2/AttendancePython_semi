@@ -3,6 +3,7 @@ from tkinter import Canvas
 import math
 from datetime import datetime, timedelta
 from config import COLORS
+from tkinter import messagebox
 
 class ReportsView:
     def __init__(self, parent_frame, db):
@@ -65,14 +66,14 @@ class ReportsView:
             total_employees = total_result[0]['count'] if total_result else 0
             print(f"Total employees: {total_employees}")
             
-            # Present today
+            # Present today (including late)
             if self.selected_departments:
                 placeholders = ','.join(['%s'] * len(self.selected_departments))
                 present_query = f"""
                     SELECT COUNT(DISTINCT e.id) as count
                     FROM employees e 
                     INNER JOIN attendance a ON e.id = a.employee_id 
-                    WHERE a.date = %s AND a.status = 'present' AND e.department IN ({placeholders})
+                    WHERE a.date = %s AND a.status IN ('present', 'late') AND e.department IN ({placeholders})
                 """
                 params = [today] + list(self.selected_departments)
                 present_result = self.db.execute_query(present_query, tuple(params), fetch=True)
@@ -81,7 +82,7 @@ class ReportsView:
                     SELECT COUNT(DISTINCT e.id) as count
                     FROM employees e 
                     INNER JOIN attendance a ON e.id = a.employee_id 
-                    WHERE a.date = %s AND a.status = 'present'
+                    WHERE a.date = %s AND a.status IN ('present', 'late')
                 """
                 present_result = self.db.execute_query(present_query, (today,), fetch=True)
             
@@ -143,7 +144,7 @@ class ReportsView:
                         SELECT COUNT(DISTINCT e.id) as count
                         FROM employees e 
                         INNER JOIN attendance a ON e.id = a.employee_id 
-                        WHERE a.date = %s AND a.status = 'present' AND e.department IN ({placeholders})
+                        WHERE a.date = %s AND a.status IN ('present', 'late') AND e.department IN ({placeholders})
                     """
                     params = [date] + list(self.selected_departments)
                     result = self.db.execute_query(query, tuple(params), fetch=True)
@@ -152,7 +153,7 @@ class ReportsView:
                         SELECT COUNT(DISTINCT e.id) as count
                         FROM employees e 
                         INNER JOIN attendance a ON e.id = a.employee_id 
-                        WHERE a.date = %s AND a.status = 'present'
+                        WHERE a.date = %s AND a.status IN ('present', 'late')
                     """
                     result = self.db.execute_query(query, (date,), fetch=True)
                 
@@ -202,7 +203,7 @@ class ReportsView:
                         SELECT COUNT(*) as count
                         FROM attendance a 
                         INNER JOIN employees e ON e.id = a.employee_id 
-                        WHERE a.date BETWEEN %s AND %s AND a.status = 'present' AND e.department IN ({placeholders})
+                        WHERE a.date BETWEEN %s AND %s AND a.status IN ('present', 'late') AND e.department IN ({placeholders})
                     """
                     params = [month_start, month_end] + list(self.selected_departments)
                     result = self.db.execute_query(query, tuple(params), fetch=True)
@@ -211,7 +212,7 @@ class ReportsView:
                         SELECT COUNT(*) as count
                         FROM attendance a 
                         INNER JOIN employees e ON e.id = a.employee_id 
-                        WHERE a.date BETWEEN %s AND %s AND a.status = 'present'
+                        WHERE a.date BETWEEN %s AND %s AND a.status IN ('present', 'late')
                     """
                     result = self.db.execute_query(query, (month_start, month_end), fetch=True)
                 
@@ -243,7 +244,7 @@ class ReportsView:
                 placeholders = ','.join(['%s'] * len(self.selected_departments))
                 query = f"""
                     SELECT e.first_name, e.last_name, e.department, 
-                           ROUND(COUNT(CASE WHEN a.status = 'present' THEN 1 END) * 100.0 / COUNT(a.id), 1) as rate
+                           ROUND(COUNT(CASE WHEN a.status IN ('present', 'late') THEN 1 END) * 100.0 / COUNT(a.id), 1) as rate
                     FROM employees e
                     LEFT JOIN attendance a ON e.id = a.employee_id
                     WHERE e.department IN ({placeholders})
@@ -256,7 +257,7 @@ class ReportsView:
             else:
                 query = """
                     SELECT e.first_name, e.last_name, e.department, 
-                           ROUND(COUNT(CASE WHEN a.status = 'present' THEN 1 END) * 100.0 / COUNT(a.id), 1) as rate
+                           ROUND(COUNT(CASE WHEN a.status IN ('present', 'late') THEN 1 END) * 100.0 / COUNT(a.id), 1) as rate
                     FROM employees e
                     LEFT JOIN attendance a ON e.id = a.employee_id
                     GROUP BY e.id, e.first_name, e.last_name, e.department
@@ -331,6 +332,20 @@ class ReportsView:
         # --- Department Filter Section ---
         filter_frame = tk.Frame(self.parent_frame, bg="white")
         filter_frame.pack(fill=tk.X, padx=40, pady=(0, 20))
+
+        # Add Export button next to the header
+        tk.Button(
+            header_frame,
+            text="📄 Export to PDF",
+            font=("Segoe UI", 11, "bold"),
+            bg="white",
+            fg="#4A90E2",
+            relief=tk.FLAT,
+            cursor="hand2",
+            command=self.export_to_pdf,
+            padx=20,
+            pady=10
+        ).pack(side=tk.RIGHT, padx=40)
 
         tk.Label(
             filter_frame,
@@ -963,3 +978,140 @@ class ReportsView:
 
         flat_points = [coord for point in points for coord in point]
         canvas.create_polygon(flat_points, fill=color, outline=color, smooth=True)
+
+    def export_to_pdf(self):
+        """Export current report data to PDF"""
+        try:
+            from reportlab.lib.pagesizes import letter, A4
+            from reportlab.lib import colors
+            from reportlab.lib.units import inch
+            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.lib.enums import TA_CENTER, TA_LEFT
+            from tkinter import filedialog
+            from datetime import datetime
+            
+            # Ask user where to save
+            filename = filedialog.asksaveasfilename(
+                defaultextension=".pdf",
+                filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")],
+                initialfile=f"Attendance_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+            )
+            
+            if not filename:
+                return
+            
+            # Create PDF
+            pdf = SimpleDocTemplate(filename, pagesize=letter)
+            elements = []
+            styles = getSampleStyleSheet()
+            
+            # Title
+            title_style = ParagraphStyle(
+                'CustomTitle',
+                parent=styles['Heading1'],
+                fontSize=24,
+                textColor=colors.HexColor('#4A90E2'),
+                spaceAfter=30,
+                alignment=TA_CENTER
+            )
+            elements.append(Paragraph("Attendance Report & Analytics", title_style))
+            
+            # Date
+            date_style = ParagraphStyle(
+                'DateStyle',
+                parent=styles['Normal'],
+                fontSize=10,
+                textColor=colors.grey,
+                alignment=TA_CENTER
+            )
+            elements.append(Paragraph(f"Generated on: {datetime.now().strftime('%B %d, %Y at %I:%M %p')}", date_style))
+            elements.append(Spacer(1, 0.3*inch))
+            
+            # Get stats
+            stats = self.get_attendance_stats()
+            
+            # Summary Statistics Table
+            elements.append(Paragraph("Summary Statistics", styles['Heading2']))
+            elements.append(Spacer(1, 0.2*inch))
+            
+            stats_data = [
+                ['Metric', 'Value'],
+                ['Total Employees', str(stats['total'])],
+                ['Present Today', str(stats['present'])],
+                ['Absent Today', str(stats['absent'])],
+                ['Attendance Rate', stats['rate']]
+            ]
+            
+            stats_table = Table(stats_data, colWidths=[3*inch, 2*inch])
+            stats_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4A90E2')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 12),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black)
+            ]))
+            elements.append(stats_table)
+            elements.append(Spacer(1, 0.4*inch))
+            
+            # Department Distribution
+            elements.append(Paragraph("Department Distribution", styles['Heading2']))
+            elements.append(Spacer(1, 0.2*inch))
+            
+            dept_data = self.get_department_distribution()
+            if dept_data:
+                dept_table_data = [['Department', 'Employee Count']]
+                for dept, count, _ in dept_data:
+                    dept_table_data.append([dept, str(count)])
+                
+                dept_table = Table(dept_table_data, colWidths=[3*inch, 2*inch])
+                dept_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#10B981')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 12),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                    ('BACKGROUND', (0, 1), (-1, -1), colors.lightgrey),
+                    ('GRID', (0, 0), (-1, -1), 1, colors.black)
+                ]))
+                elements.append(dept_table)
+            elements.append(Spacer(1, 0.4*inch))
+            
+            # Top Performers
+            elements.append(Paragraph("Top 5 Best Attendance", styles['Heading2']))
+            elements.append(Spacer(1, 0.2*inch))
+            
+            top_employees = self.get_top_performers()
+            if top_employees:
+                top_table_data = [['Rank', 'Employee Name', 'Department', 'Attendance Rate']]
+                for i, (name, dept, rate, _) in enumerate(top_employees, 1):
+                    top_table_data.append([str(i), name, dept, rate])
+                
+                top_table = Table(top_table_data, colWidths=[0.7*inch, 2.5*inch, 1.5*inch, 1.3*inch])
+                top_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#8B5CF6')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 12),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                    ('BACKGROUND', (0, 1), (-1, -1), colors.lightgreen),
+                    ('GRID', (0, 0), (-1, -1), 1, colors.black)
+                ]))
+                elements.append(top_table)
+            
+            # Build PDF
+            pdf.build(elements)
+            
+            messagebox.showinfo("Success", f"Report exported successfully to:\n{filename}")
+            
+        except ImportError:
+            messagebox.showerror("Error", "ReportLab library not installed.\n\nInstall it using:\npip install reportlab")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to export PDF:\n{str(e)}")
+            import traceback
+            traceback.print_exc()

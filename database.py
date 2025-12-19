@@ -342,56 +342,87 @@ class Database:
             print(f"Error fetching weekly stats: {e}")
             return []
     
-    # --- Monthly Attendance Stats (UPDATED WITH LEAVE DATA) ---
+  # --- Monthly Attendance Stats ---
     def get_monthly_attendance_stats(self, months=6):
-        """Get monthly attendance stats including leave data"""
+        """Get monthly attendance stats - Shows recent months with data"""
         try:
+            print("DEBUG - Starting get_monthly_attendance_stats")
+            
+            # Get current total employees
             total_employees_query = "SELECT COUNT(*) as count FROM employees"
             total_result = self.execute_query(total_employees_query, fetch=True)
             total_employees = total_result[0]['count'] if total_result else 0
+            print(f"DEBUG - Total employees: {total_employees}")
             
-            # Get attendance by month
+            # Query to get attendance by month
             query = """
-                SELECT MONTH(clock_in) as month, YEAR(clock_in) as year,
-                       COUNT(DISTINCT employee_id, DATE(clock_in)) as present
+                SELECT 
+                    DATE_FORMAT(clock_in, '%b') as month,
+                    YEAR(clock_in) as year,
+                    COUNT(*) as attendance_count,
+                    COUNT(DISTINCT DATE(clock_in)) as days_with_data
                 FROM attendance
-                WHERE clock_in >= DATE_SUB(CURDATE(), INTERVAL %s MONTH)
-                GROUP BY MONTH(clock_in), YEAR(clock_in)
-                ORDER BY year DESC, month DESC
+                GROUP BY YEAR(clock_in), MONTH(clock_in)
+                ORDER BY YEAR(clock_in) DESC, MONTH(clock_in) DESC
+                LIMIT 6
             """
-            attendance_result = self.execute_query(query, (months,), fetch=True)
             
-            # Get leaves by month
-            leave_query = """
-                SELECT MONTH(leave_date) as month, YEAR(leave_date) as year,
-                       COUNT(*) as on_leave
-                FROM leave_requests
-                WHERE leave_date >= DATE_SUB(CURDATE(), INTERVAL %s MONTH)
-                AND status = 'Approved'
-                GROUP BY MONTH(leave_date), YEAR(leave_date)
-            """
-            leave_result = self.execute_query(leave_query, (months,), fetch=True)
+            result = self.execute_query(query, fetch=True)
+            print(f"DEBUG - Raw query result: {result}")
             
-            leave_dict = {(row['month'], row['year']): row['on_leave'] for row in leave_result} if leave_result else {}
+            if not result:
+                print("DEBUG - No data returned from query")
+                return []
             
-            month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
             data_list = []
-            if attendance_result:
-                for row in attendance_result:
-                    leave_count = leave_dict.get((row['month'], row['year']), 0)
-                    present = row['present'] or 0
-                    # Estimate days in month as 30 for calculation
-                    absent = (total_employees * 30) - present - leave_count
-                    data_list.append({
-                        'month': month_names[(row['month'] - 1) % 12],
-                        'present': present,
-                        'absent': max(0, absent),
-                        'leave': leave_count
-                    })
+            for row in result:
+                month = row['month']
+                attendance_count = row['attendance_count']
+                days_with_data = row['days_with_data'] if row['days_with_data'] > 0 else 1
+                
+                # Calculate average attendance per day
+                avg_present = round(attendance_count / days_with_data)
+                avg_absent = max(0, total_employees - avg_present)
+                
+                print(f"DEBUG - Processing: {month}, avg_present={avg_present}, avg_absent={avg_absent}")
+                
+                data_list.append({
+                    'month': month,
+                    'present': avg_present,
+                    'absent': avg_absent,
+                    'leave': 0
+                })
             
-            return data_list if data_list else []
+            # Reverse to show oldest to newest
+            data_list.reverse()
+            
+            print(f"DEBUG - Final data_list: {data_list}")
+            return data_list
+            
         except Exception as e:
-            print(f"Error fetching monthly stats: {e}")
+            print(f"ERROR in get_monthly_attendance_stats: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+
+    # --- Get Upcoming Holidays ---
+    def get_upcoming_holidays(self, limit=5):
+        """Get upcoming holidays"""
+        try:
+            query = """
+                SELECT id, name, DATE_FORMAT(holiday_date, '%d-%b') as date
+                FROM holidays
+                WHERE holiday_date >= CURDATE()
+                ORDER BY holiday_date ASC
+                LIMIT %s
+            """
+            result = self.execute_query(query, (limit,), fetch=True)
+            print(f"DEBUG - Holidays fetched: {result}")
+            return result if result else []
+        except Exception as e:
+            print(f"ERROR fetching holidays: {e}")
+            import traceback
+            traceback.print_exc()
             return []
     
     # --- Get Upcoming Holidays ---
@@ -708,16 +739,16 @@ class Database:
     def get_admin_fee_summary(self):
         """Get late fee summary for all employees (For Admin Dashboard)"""
         query = """SELECT e.id, CONCAT(e.first_name, ' ', e.last_name) as name,
-                          e.department,
-                          COUNT(CASE WHEN a.late_fee_amount > 0 THEN 1 END) as late_count,
-                          COALESCE(SUM(a.late_fee_amount), 0) as total_fees,
-                          COALESCE(SUM(CASE WHEN a.late_fee_paid = 1 THEN a.late_fee_amount ELSE 0 END), 0) as paid,
-                          COALESCE(SUM(CASE WHEN a.late_fee_paid = 0 THEN a.late_fee_amount ELSE 0 END), 0) as unpaid
-                   FROM employees e
-                   LEFT JOIN attendance a ON e.id = a.employee_id
-                   GROUP BY e.id, e.first_name, e.last_name, e.department
-                   HAVING late_count > 0
-                   ORDER BY total_fees DESC"""
+                        e.department,
+                        COUNT(CASE WHEN a.late_fee_amount > 0 THEN 1 END) as late_count,
+                        COALESCE(SUM(a.late_fee_amount), 0) as total_fees,
+                        COALESCE(SUM(CASE WHEN a.late_fee_paid = 1 THEN a.late_fee_amount ELSE 0 END), 0) as paid,
+                        COALESCE(SUM(CASE WHEN a.late_fee_paid = 0 OR a.late_fee_paid IS NULL THEN a.late_fee_amount ELSE 0 END), 0) as unpaid
+                FROM employees e
+                LEFT JOIN attendance a ON e.id = a.employee_id
+                GROUP BY e.id, e.first_name, e.last_name, e.department
+                HAVING late_count > 0
+                ORDER BY total_fees DESC"""
         return self.execute_query(query, fetch=True)
 
     def get_late_fee_settings(self):
@@ -729,7 +760,7 @@ class Database:
     def get_employee_unpaid_fees(self, employee_id):
         """Get all unpaid late records for a specific employee"""
         query = """
-            SELECT id, date, minutes_late, late_fee_amount, status
+            SELECT id, date, clock_in, minutes_late, late_fee_amount, status
             FROM attendance 
             WHERE employee_id = %s 
             AND late_fee_amount > 0 
@@ -737,6 +768,7 @@ class Database:
             ORDER BY date DESC
         """
         return self.execute_query(query, (employee_id,), fetch=True)
+
 
     def process_payment(self, attendance_id, employee_id, amount):
         """Record a payment and mark attendance as paid"""

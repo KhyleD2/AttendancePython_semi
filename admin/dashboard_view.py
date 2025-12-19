@@ -88,7 +88,7 @@ class DashboardView:
         tk.Label(content, text=str(value), font=("Segoe UI", 32, "bold"), fg="#2c3e50", bg="white").pack(anchor="e", pady=(5, 0))
 
     def render_attendance_chart(self, parent):
-        """Renders attendance chart with daily, weekly, monthly toggles"""
+        """Renders attendance chart with daily and monthly toggles only"""
         
         # Frame for title and toggle buttons
         chart_header = tk.Frame(parent, bg="white")
@@ -104,10 +104,8 @@ class DashboardView:
         
         self.chart_view = tk.StringVar(value="daily")
         
+        # Only Daily and Monthly radio buttons
         tk.Radiobutton(toggle_frame, text="Daily", variable=self.chart_view, value="daily", 
-                       bg="white", fg="#2c3e50", font=("Segoe UI", 9),
-                       command=lambda: self.update_chart(parent)).pack(side=tk.LEFT, padx=5)
-        tk.Radiobutton(toggle_frame, text="Weekly", variable=self.chart_view, value="weekly", 
                        bg="white", fg="#2c3e50", font=("Segoe UI", 9),
                        command=lambda: self.update_chart(parent)).pack(side=tk.LEFT, padx=5)
         tk.Radiobutton(toggle_frame, text="Monthly", variable=self.chart_view, value="monthly", 
@@ -129,13 +127,10 @@ class DashboardView:
         
         view_type = self.chart_view.get()
         
-        # Get data based on view type
+        # Get data based on view type (only daily or monthly)
         if view_type == "daily":
             labels, present, absent, leave = self.get_daily_data()
             title = "Daily Attendance (Last 7 Days)"
-        elif view_type == "weekly":
-            labels, present, absent, leave = self.get_weekly_data()
-            title = "Weekly Attendance (Last 4 Weeks)"
         else:  # monthly
             labels, present, absent, leave = self.get_monthly_data()
             title = "Monthly Attendance (Last 6 Months)"
@@ -169,7 +164,6 @@ class DashboardView:
         ax.set_ylim(0, y_max)  # Dynamic Y-axis based on total employees
         
         # Set Y-axis to show only whole numbers (no decimals)
-        import matplotlib.ticker as ticker
         ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))
         
         ax.legend(loc="upper left", fontsize=9)
@@ -208,23 +202,6 @@ class DashboardView:
             # If error, return empty data (0 for all)
             dates = [(datetime.now() - timedelta(days=i)).strftime("%m-%d") for i in range(6, -1, -1)]
             return dates, [0]*7, [0]*7, [0]*7
-
-    def get_weekly_data(self):
-        """Fetch weekly attendance data for last 4 weeks - REAL DATA ONLY"""
-        try:
-            data = self.db.get_weekly_attendance_stats(weeks=4)
-            
-            if not data:
-                return ["W1", "W2", "W3", "W4"], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]
-            
-            labels = [d['week'] for d in data]
-            present = [d['present'] for d in data]
-            absent = [d['absent'] for d in data]
-            leave = [d['leave'] for d in data]
-            return labels, present, absent, leave
-        except Exception as e:
-            print(f"Error fetching weekly stats: {e}")
-            return ["W1", "W2", "W3", "W4"], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]
 
     def get_monthly_data(self):
         """Fetch monthly attendance data for last 6 months - REAL DATA ONLY"""
